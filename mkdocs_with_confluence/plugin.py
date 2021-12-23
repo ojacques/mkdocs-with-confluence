@@ -39,11 +39,7 @@ class MkdocsWithConfluence(BasePlugin):
         self.flen = 1
         self.logger = logging.getLogger("plugin")
 
-        self.confluence = Confluence(
-            url=self.config["host_url"],
-            username=self.config["username"],
-            password=self.config["password"]
-        )
+
 
     def on_nav(self, nav, config, files):
         MkdocsWithConfluence.tab_nav = []
@@ -103,6 +99,12 @@ class MkdocsWithConfluence(BasePlugin):
             self.dryrun = True
         else:
             self.dryrun = False
+
+        self.confluence = Confluence(
+            url=self.config["host_url"],
+            username=self.config["username"],
+            password=self.config["password"]
+        )
 
     def on_page_markdown(self, markdown, page, config, files):
         MkdocsWithConfluence._id += 1
