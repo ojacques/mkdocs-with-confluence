@@ -332,8 +332,9 @@ class MkdocsWithConfluence(BasePlugin):
                                                                                                       self.config["space"]))
 
             raise api_error
-
-        self.logger.info("Found apge ID for Page {} : {}".format(self.config["space"], page_id))
+            page_id = None
+        else:
+            self.logger.info("Found apge ID for Page {} : {}".format(self.config["space"], page_id))
 
         return page_id
 
