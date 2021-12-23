@@ -6,10 +6,13 @@ import shutil
 import requests
 import mimetypes
 import mistune
+import logging
+
+from os import environ
 from mkdocs.config import config_options
 from mkdocs.plugins import BasePlugin
 from md2cf.confluence_renderer import ConfluenceRenderer
-from os import environ
+from atlassian import Confluence
 
 TEMPLATE_BODY = "<p> TEMPLATE </p>"
 
@@ -34,6 +37,13 @@ class MkdocsWithConfluence(BasePlugin):
         self.confluence_mistune = mistune.Markdown(renderer=self.confluence_renderer)
         self.simple_log = False
         self.flen = 1
+        self.logger = logging.getLogger("plugin")
+
+        self.confluence = Confluence(
+            url=self.config["host_url"],
+            username=self.config["username"],
+            password=self.config["password"]
+        )
 
     def on_nav(self, nav, config, files):
         MkdocsWithConfluence.tab_nav = []
@@ -309,24 +319,13 @@ class MkdocsWithConfluence(BasePlugin):
                 print("PAGE DOES NOT EXISTS")
 
     def find_page_id(self, page_name):
-        if self.config["debug"]:
-            print(f"INFO    -   * Mkdocs With Confluence: Find Page ID: PAGE NAME: {page_name}")
-        name_confl = page_name.replace(" ", "+")
-        url = self.config["host_url"] + "?title=" + name_confl + "&spaceKey=" + self.config["space"] + "&expand=history"
-        if self.config["debug"]:
-            print(f"URL: {url}")
-        auth = (self.user, self.pw)
-        r = requests.get(url, auth=auth)
-        r.raise_for_status()
-        response_json = r.json()
-        if response_json["results"]:
-            if self.config["debug"]:
-                print(f"ID: {response_json['results'][0]['id']}")
-            return response_json["results"][0]["id"]
-        else:
-            if self.config["debug"]:
-                print("PAGE DOES NOT EXIST")
-            return None
+
+        page_id = self.confluence.get_page_id(self.config["space"], page_name)
+
+        self.logger.info("Found apge ID for Page {} : {}".format(self.config["space"], page_id))
+
+        return page_id
+
 
     def add_page(self, page_name, parent_page_id, page_content_in_storage_format):
         # if self.config['verbose']:
