@@ -14,6 +14,8 @@ from mkdocs.plugins import BasePlugin
 from md2cf.confluence_renderer import ConfluenceRenderer
 from atlassian import Confluence
 
+import atlassian.errors
+
 TEMPLATE_BODY = "<p> TEMPLATE </p>"
 
 
@@ -322,7 +324,14 @@ class MkdocsWithConfluence(BasePlugin):
 
     def find_page_id(self, page_name):
 
-        page_id = self.confluence.get_page_id(self.config["space"], page_name)
+        try:
+            page_id = self.confluence.get_page_id(self.config["space"], page_name)
+        except atlassian.errors.ApiPermissionError as api_error:
+            self.logger.error("User {} doesn't have permissions to access page {} in space {}".format(self.config["username"],
+                                                                                                      page_name,
+                                                                                                      self.config["space"]))
+
+            raise api_error
 
         self.logger.info("Found apge ID for Page {} : {}".format(self.config["space"], page_id))
 
