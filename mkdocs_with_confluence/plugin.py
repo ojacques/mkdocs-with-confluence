@@ -368,42 +368,24 @@ class MkdocsWithConfluence(BasePlugin):
             self.logger.info(f"Refrained from updating Page {page_name}, dryrun")
 
     def find_page_version(self, page_name):
-        if self.config["debug"]:
-            print(f"INFO    -   * Mkdocs With Confluence: Find PAGE VERSION, PAGE NAME: {page_name}")
-        name_confl = page_name.replace(" ", "+")
-        url = self.config["host_url"] + "?title=" + name_confl + "&spaceKey=" + self.config["space"] + "&expand=version"
 
-        auth = (self.user, self.pw)
-        r = requests.get(url, auth=auth)
-        r.raise_for_status()
-        response_json = r.json()
-        if response_json["results"]:
-            if self.config["debug"]:
-                print(f"VERSION: {response_json['results'][0]['version']['number']}")
-            return response_json["results"][0]["version"]["number"]
-        else:
-            if self.config["debug"]:
-                print("PAGE DOES NOT EXISTS")
-            return None
+        self.logger.info(f"INFO    -   * Mkdocs With Confluence: Find PAGE VERSION, PAGE NAME: {page_name}")
+
+        page_id = self.find_page_id(page_name)
+
+        page_history = self.confluence.history(page_id)[0]["version"]["number"]
+
+        return page_history
 
     def find_parent_name_of_page(self, name):
-        if self.config["debug"]:
-            print(f"INFO    -   * Mkdocs With Confluence: Find PARENT OF PAGE, PAGE NAME: {name}")
-        idp = self.find_page_id(name)
-        url = self.config["host_url"] + "/" + idp + "?expand=ancestors"
 
-        auth = (self.user, self.pw)
-        r = requests.get(url, auth=auth)
-        r.raise_for_status()
-        response_json = r.json()
-        if response_json:
-            if self.config["debug"]:
-                print(f"PARENT NAME: {response_json['ancestors'][-1]['title']}")
-            return response_json["ancestors"][-1]["title"]
-        else:
-            if self.config["debug"]:
-                print("PAGE DOES NOT HAVE PARENT")
-            return None
+        self.logger.info(f"INFO    -   * Mkdocs With Confluence: Find PARENT OF PAGE, PAGE NAME: {name}")
+
+        idp = self.find_page_id(name)
+
+        parent = self.confluence.get_page_ancestors(idp)[-1]["title"]
+
+        return parent
 
     def wait_until(self, condition, interval=0.1, timeout=1):
         start = time.time()
