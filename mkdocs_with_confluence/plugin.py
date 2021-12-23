@@ -1,5 +1,6 @@
 import time
 import os
+import os.path
 import re
 import tempfile
 import shutil
@@ -292,35 +293,22 @@ class MkdocsWithConfluence(BasePlugin):
         return re.search("\\s*Page\\(title='(.*)',", section).group(1)
 
     def add_attachment(self, page_name, filepath):
-        if self.config["verbose"]:
-            print(f"INFO    - Mkdocs With Confluence * {page_name} *NEW ATTACHMENT* {filepath}")
-        if self.config["debug"]:
-            print(f" * Mkdocs With Confluence: Add Attachment: PAGE NAME: {page_name}, FILE: {filepath}")
+        self.logger.info(f"INFO    - Mkdocs With Confluence * {page_name} *NEW ATTACHMENT* {filepath}")
+        self.logger.debug(f" * Mkdocs With Confluence: Add Attachment: PAGE NAME: {page_name}, FILE: {filepath}")
+
         page_id = self.find_page_id(page_name)
-        if page_id:
-            url = self.config["host_url"] + "/" + page_id + "/child/attachment/"
-            headers = {"X-Atlassian-Token": "no-check"}  # no content-type here!
-            if self.config["debug"]:
-                print(f"URL: {url}")
-            filename = filepath
-            auth = (self.user, self.pw)
 
-            # determine content-type
-            content_type, encoding = mimetypes.guess_type(filename)
-            if content_type is None:
-                content_type = "multipart/form-data"
-            files = {"file": (filename, open(filename, "rb"), content_type)}
+        if not self.dryrun:
 
-            if not self.dryrun:
-                r = requests.post(url, headers=headers, files=files, auth=auth)
-                r.raise_for_status()
-                if r.status_code == 200:
-                    print("OK!")
-                else:
-                    print("ERR!")
+            self.confluence.attach_file(filepath,
+                                        name=os.path.basename(filepath),
+                                        page_id=page_id,
+                                        space=self.config["space"])
+
+
+
         else:
-            if self.config["debug"]:
-                print("PAGE DOES NOT EXISTS")
+            self.logger.info(f"Not adding attachment {filepath}, dryrun")
 
     def find_page_id(self, page_name):
 
@@ -343,69 +331,41 @@ class MkdocsWithConfluence(BasePlugin):
         # if self.config['verbose']:
         #    print(f"INFO    -   * Mkdocs With Confluence: {page_name} - *NEW PAGE*")
 
-        if self.config["debug"]:
-            print(f" * Mkdocs With Confluence: Adding Page: PAGE NAME: {page_name}, parent ID: {parent_page_id}")
-        url = self.config["host_url"] + "/"
-        if self.config["debug"]:
-            print(f"URL: {url}")
-        headers = {"Content-Type": "application/json"}
-        auth = (self.user, self.pw)
-        space = self.config["space"]
-        data = {
-            "type": "page",
-            "title": page_name,
-            "space": {"key": space},
-            "ancestors": [{"id": parent_page_id}],
-            "body": {"storage": {"value": page_content_in_storage_format, "representation": "storage"}},
-        }
-        if self.config["debug"]:
-            print(f"DATA: {data}")
+        self.logger.debug(f" * Mkdocs With Confluence: Adding Page: PAGE NAME: {page_name}, parent ID: {parent_page_id}")
+
+
         if not self.dryrun:
-            r = requests.post(url, json=data, headers=headers, auth=auth)
-            r.raise_for_status()
-            if r.status_code == 200:
-                if self.config["debug"]:
-                    print("OK!")
-            else:
-                if self.config["debug"]:
-                    print("ERR!")
+            # Try/Except in Future
+            self.logger.debug(f"DATA: {page_content_in_storage_format}")
+            self.confluence.create_page(self.config["space"],
+                                        page_name,
+                                        page_content_in_storage_format,
+                                        parent_id=None,
+                                        type='page',
+                                        representation='storage',
+                                        editor='v2')
+
+
+        else:
+            self.logger.info(f"Refrained from creating Page {page_name}, dryrun")
+
 
     def update_page(self, page_name, page_content_in_storage_format):
-        page_id = self.find_page_id(page_name)
-        if self.config["verbose"]:
-            print(f"INFO    -   * Mkdocs With Confluence: {page_name} - *UPDATE*")
-        if self.config["debug"]:
-            print(f" * Mkdocs With Confluence: Update PAGE ID: {page_id}, PAGE NAME: {page_name}")
-        if page_id:
-            page_version = self.find_page_version(page_name)
-            page_version = page_version + 1
-            url = self.config["host_url"] + "/" + page_id
-            if self.config["debug"]:
-                print(f"URL: {url}")
-            headers = {"Content-Type": "application/json"}
-            auth = (self.user, self.pw)
-            space = self.config["space"]
-            data = {
-                "id": page_id,
-                "title": page_name,
-                "type": "page",
-                "space": {"key": space},
-                "body": {"storage": {"value": page_content_in_storage_format, "representation": "storage"}},
-                "version": {"number": page_version},
-            }
 
-            if not self.dryrun:
-                r = requests.put(url, json=data, headers=headers, auth=auth)
-                r.raise_for_status()
-                if r.status_code == 200:
-                    if self.config["debug"]:
-                        print("OK!")
-                else:
-                    if self.config["debug"]:
-                        print("ERR!")
+        self.logger.info(f"INFO    -   * Mkdocs With Confluence: {page_name} - *UPDATE*")
+        page_id = self.find_page_id(page_name)
+
+        self.logger.debug(f" * Mkdocs With Confluence: Update PAGE ID: {page_id}, PAGE NAME: {page_name}")
+
+        if not self.dryrun:
+            self.confluence.update_page(page_id,
+                                    page_name,
+                                    page_content_in_storage_format,
+                                    type='page',
+                                    representation='storage',
+                                    minor_edit=False)
         else:
-            if self.config["debug"]:
-                print("PAGE DOES NOT EXIST YET!")
+            self.logger.info(f"Refrained from updating Page {page_name}, dryrun")
 
     def find_page_version(self, page_name):
         if self.config["debug"]:
