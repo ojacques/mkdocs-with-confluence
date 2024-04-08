@@ -4,8 +4,6 @@ import os.path
 import re
 import tempfile
 import shutil
-import requests
-import mimetypes
 import mistune
 import logging
 
@@ -28,8 +26,9 @@ class MkdocsWithConfluence(BasePlugin):
         ("host_url", config_options.Type(str, default=None)),
         ("space", config_options.Type(str, default=None)),
         ("parent_page_name", config_options.Type(str, default=None)),
-        ("username", config_options.Type(str, default=environ.get("JIRA_USERNAME", None))),
-        ("password", config_options.Type(str, default=environ.get("JIRA_PASSWORD", None))),
+        ("username", config_options.Type(str, default=environ.get("CONFLUENCE_USERNAME", None))),
+        ("password", config_options.Type(str, default=environ.get("CONFLUENCE_PASSWORD", None))),
+        ("token", config_options.Type(str, default=environ.get("CONFLUENCE_TOKEN", None))),
         ("cloud", config_options.Type(bool, default=False)),
         ("enabled_if_env", config_options.Type(str, default=None)),
         ("verbose", config_options.Type(bool, default=False)),
@@ -123,12 +122,18 @@ class MkdocsWithConfluence(BasePlugin):
         else:
             self.dryrun = False
 
-        self.confluence = Confluence(
-            url=self.config["host_url"],
-            username=self.config["username"],
-            password=self.config["password"],
-            cloud=self.config["cloud"]
-        )
+        if self.config["token"]:
+            self.confluence = Confluence(
+                url=self.config["host_url"],
+                token=self.config["token"],
+            )
+        else:
+            self.confluence = Confluence(
+                url=self.config["host_url"],
+                username=self.config["username"],
+                password=self.config["password"],
+                cloud=self.config["cloud"]
+            )
 
     def on_page_markdown(self, markdown, page, config, files):
         MkdocsWithConfluence._id += 1
@@ -206,32 +211,32 @@ class MkdocsWithConfluence(BasePlugin):
                 if self.config["debug"]:
                     self.logger.debug(
                         f"  Uploading page to Confluence:\n"
-                        f"  HOST: {self.config['host_url']}\n"
-                        f"  SPACE: {self.config['space']}\n"
-                        f"  TITLE: {page.title}\n"
-                        f"  PARENT: {parent}\n"
-                        f"  BODY: {confluence_body}\n"
+                        f"    HOST: {self.config['host_url']}\n"
+                        f"    SPACE: {self.config['space']}\n"
+                        f"    TITLE: {page.title}\n"
+                        f"    PARENT: {parent}\n"
+                        f"    BODY: {confluence_body}\n"
                     )
 
                 page_id = self.find_page_id(page.title)
                 if page_id is not None:
                     self.logger.debug(
                         f"  About to update page '{page.title}': "
-                        f"checking if parent page on confluence is the same as here..."
+                        f"    checking if parent page on confluence is the same as here..."
                     )
 
                     parent_name = self.find_parent_name_of_page(page.title)
-
                     if parent_name == parent:
                         self.logger.debug("  OK, Parents match. Continue...")
                     else:
-                        self.logger.error(f"  Parents does not match: '{parent}' != '{parent_name}'. Aborting...")
+                        self.logger.debug(f"  Parents does not match: '{parent}' != '{parent_name}'. Aborting...")
                         return markdown
                     self.update_page(page.title, confluence_body)
                     for i in MkdocsWithConfluence.tab_nav:
                         if page.title in i:
                             self.logger.info(f"  *UPDATE*: {i}")
                 else:
+                    # New page, creating under parent
                     self.logger.debug(f"  Page '{page.title}' not found on Confluence. Creating...")
                     self.logger.debug(f"  Page: {page.title}, PARENT0: {parent}, PARENT1: {parent1}, MAIN PARENT: {main_parent}")
                     self.logger.debug(f"  Querying Confluence for parent ({parent}) page id...")
@@ -315,14 +320,13 @@ class MkdocsWithConfluence(BasePlugin):
         page_id = self.find_page_id(page_name)
 
         if not self.dryrun:
-
-            self.confluence.attach_file(filepath,
-                                        name=os.path.basename(filepath),
-                                        page_id=page_id,
-                                        space=self.config["space"])
-
-
-
+            try:
+                self.confluence.attach_file(filepath,
+                                            name=os.path.basename(filepath),
+                                            page_id=page_id,
+                                            space=self.config["space"])
+            except Exception as e:
+                self.logger.error("  FAILURE: {}".format(e))
         else:
             self.logger.info(f"Not adding attachment {filepath}, dryrun")
 
@@ -330,12 +334,8 @@ class MkdocsWithConfluence(BasePlugin):
 
         try:
             page_id = self.confluence.get_page_id(self.config["space"], page_name)
-        except atlassian.errors.ApiPermissionError as api_error:
-            self.logger.error("  User {} doesn't have permissions to access page {} in space {}".format(self.config["username"],
-                                                                                                      page_name,
-                                                                                                      self.config["space"]))
-
-            raise api_error
+        except Exception as e:
+            self.logger.error("  FAILURE: {}".format(e))
             page_id = None
         else:
             self.logger.debug(f"  Found page ID for Page '{page_name}' : {page_id}")
@@ -349,13 +349,16 @@ class MkdocsWithConfluence(BasePlugin):
         if not self.dryrun:
             # Try/Except in Future
             #self.logger.debug(f"  DATA: {page_content_in_storage_format}")
-            self.confluence.create_page(self.config["space"],
-                                        page_name,
-                                        page_content_in_storage_format,
-                                        parent_id=parent_page_id,
-                                        type='page',
-                                        representation='storage',
-                                        editor='v2')
+            try:
+                self.confluence.create_page(self.config["space"],
+                                            page_name,
+                                            page_content_in_storage_format,
+                                            parent_id=parent_page_id,
+                                            type='page',
+                                            representation='storage',
+                                            editor='v2')
+            except Exception as e:
+                self.logger.error("  FAILURE: {}".format(e))
         else:
             self.logger.info(f"  Refrained from creating Page {page_name}: dryrun mode")
 
@@ -364,14 +367,16 @@ class MkdocsWithConfluence(BasePlugin):
 
         self.logger.info(f"  *UPDATE* '{page_name}'")
         page_id = self.find_page_id(page_name)
-
         if not self.dryrun:
-            self.confluence.update_page(page_id,
-                                    page_name,
-                                    page_content_in_storage_format,
-                                    type='page',
-                                    representation='storage',
-                                    minor_edit=False)
+            try:
+                self.confluence.update_page(page_id,
+                                        page_name,
+                                        page_content_in_storage_format,
+                                        type='page',
+                                        representation='storage',
+                                        minor_edit=False)
+            except Exception as e:
+                self.logger.error("  FAILURE: {}".format(e))
         else:
             self.logger.info(f"Refrained from updating Page {page_name}, dryrun")
 
@@ -381,7 +386,11 @@ class MkdocsWithConfluence(BasePlugin):
 
         page_id = self.find_page_id(page_name)
 
-        page_history = self.confluence.history(page_id)[0]["version"]["number"]
+        try:
+            page_history = self.confluence.history(page_id)[0]["version"]["number"]
+        except Exception as e:
+            self.logger.error("  FAILURE: {}".format(e))
+            return None
 
         self.logger.debug(f"  Confluence returned version {page_history} for page '{page_name}'")
 
@@ -393,7 +402,11 @@ class MkdocsWithConfluence(BasePlugin):
 
         idp = self.find_page_id(name)
 
-        parent = self.confluence.get_page_ancestors(idp)[-1]["title"]
+        try:
+            parent = self.confluence.get_page_ancestors(idp)[-1]["title"]
+        except Exception as e:
+            self.logger.error("  FAILURE: {}".format(e))
+            return None
 
         self.logger.debug(f"  Confluence returned parent of page '{name}' is '{parent}'")
 
